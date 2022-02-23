@@ -7,6 +7,7 @@
 #include "ticktock.h"
 #include <tbb/tbb.h>
 
+#define NOMINMAX
 // TODO: 并行化所有这些 for 循环
 
 template <class T, class Func>
@@ -87,23 +88,39 @@ T minvalue(std::vector<T> const &x)
     return ret;
 }
 
+//并行操作同一个容器，存在互斥关系
 template <class T>
 std::vector<T> magicfilter(std::vector<T> const &x, std::vector<T> const &y)
 {
     TICK(magicfilter);
+    std::mutex mtx;
     std::vector<T> res;
-    for (size_t i = 0; i < min(x.size(), y.size()); i++)
-    {
-        if (x[i] > y[i])
-        {
-            res.push_back(x[i]);
-        }
-        else if (y[i] > x[i] && y[i] > 0.5f)
-        {
-            res.push_back(y[i]);
-            res.push_back(x[i] * y[i]);
-        }
-    }
+    int n = std::min(x.size(), y.size());
+    //首先预留出数据的大小，防止多线程push_back造成效率低下
+    res.reserve(n);
+
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, n), [&](tbb::blocked_range<size_t> r)
+                      {
+                          std::vector<T> local_a;
+                          //对local_a预留一定的大小，该线程的数据先填补到这个局部数组中
+                          local_a.reserve(r.size());
+                          for (size_t i = r.begin(); i < r.end(); ++i)
+                          {
+                              if (x[i] > y[i])
+                              {
+                                  local_a.push_back(x[i]);
+                              }
+                              else if (y[i] > x[i] && y[i] > 0.5f)
+                              {
+                                  local_a.push_back(y[i]);
+                                  local_a.push_back(x[i] * y[i]);
+                              }
+                          }
+                          //该线程工作做完后再加锁拷贝到全局数组中
+                          std::lock_guard grd(mtx);
+                          std::copy(local_a.begin(), local_a.end(), std::back_insert_iterator(res));
+                      });
+
     TOCK(magicfilter);
     return res;
 }

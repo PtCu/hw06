@@ -5,6 +5,8 @@ set(CMAKE_BUILD_TYPE Release)
 
 project(main LANGUAGES CXX)
 
+add_definitions(-D NOMINMAX)
+
 add_executable(main main.cpp)
 
 #find_package(OpenMP REQUIRED)
